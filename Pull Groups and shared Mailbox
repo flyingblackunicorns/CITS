@@ -1,0 +1,190 @@
+>>>>  Make a .csv with all mailboxes needed 
+
+>>>>>>UPN	 	 
+>>>>>>email1@domain.com	 	 
+>>>>>email2@domain.com	 	 
+>>>>email3@domain.com	 	 
+ 
+
+>>>>>>>Set your paths - I typically just make a folder in downloads or downloads itself 
+
+>>>>>$CsvPath is the list you created 
+
+>>>$XlsxPath and $CsvOutDirFallback is where your export will go
+
+
+
+
+
+
+
+
+
+$ErrorActionPreference = 'Stop'
+$ProgressPreference    = 'SilentlyContinue'
+# ---------- Paths ----------
+$CsvPath  = "C:\Users\XavierRobertson\Downloads\Mailboxes.csv"
+$stamp    = Get-Date -Format 'yyyyMMdd_HHmmss'
+$XlsxPath = "C:\Users\XavierRobertson\Downloads\MailboxDelegates_ByMailbox_$stamp.xlsx"
+$CsvOutDirFallback = "C:\Users\XavierRobertson\Downloads\MailboxDelegates_ByMailbox_$stamp"
+# ---------- Try to load ImportExcel (for multi-worksheet .xlsx) ----------
+$UseExcel = $true
+try {
+    if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+        Install-Module -Name ImportExcel -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    }
+    Import-Module ImportExcel -ErrorAction Stop
+} catch {
+    Write-Warning "ImportExcel not available; will export one CSV per mailbox to $CsvOutDirFallback"
+    $UseExcel = $false
+    New-Item -ItemType Directory -Path $CsvOutDirFallback -Force | Out-Null
+}
+# ---------- Helper: safe worksheet/table names ----------
+function New-SafeName {
+    param(
+        [Parameter(Mandatory)] [string] $Text,
+        [int] $MaxLen = 31,
+        [string] $Prefix = ''
+    )
+    $invalid = [regex]::Escape(':/\?*[]')
+    $clean   = ($Text -replace "[$invalid]", '_') -replace '\s+', ' '
+    if ($Prefix) { $clean = "$Prefix$clean" }
+    if ($clean.Length -gt $MaxLen) { $clean = $clean.Substring(0, $MaxLen) }
+    return $clean
+}
+# ---------- Core: gather delegates for a single mailbox ----------
+function Get-MailboxDelegatesReport {
+    param([Parameter(Mandatory)][string]$MailboxIdentity)
+    $list = New-Object System.Collections.Generic.List[object]
+    # Full Access
+    try { $fa = Get-EXOMailboxPermission -Identity $MailboxIdentity -ResultSize Unlimited } catch { $fa = Get-MailboxPermission -Identity $MailboxIdentity -ResultSize Unlimited }
+    $fa | Where-Object {
+        ($_.AccessRights -contains 'FullAccess') -and -not $_.IsInherited -and $_.User -notmatch 'NT AUTHORITY\\SELF|S-1-5-|Anonymous|Default'
+    } | ForEach-Object {
+        [pscustomobject]@{
+            Mailbox=$MailboxIdentity; Delegate=$_.User.ToString(); DelegateUPN=$null
+            PermissionType='FullAccess'; Scope='Mailbox'; Folder=$null
+            AccessRights='FullAccess'; SharingPermissionFlags=$null; Inherited=$_.IsInherited; Deny=$_.Deny
+        } | ForEach-Object { [void]$list.Add($_) }
+    }
+    # Send As
+    try { $sa = Get-RecipientPermission -Identity $MailboxIdentity } catch { $sa = @() }
+    $sa | Where-Object { $_.AccessRights -contains 'SendAs' -and $_.Trustee -notmatch 'NT AUTHORITY\\SELF|Anonymous|Default' } |
+    ForEach-Object {
+        [pscustomobject]@{
+            Mailbox=$MailboxIdentity; Delegate=$_.Trustee.ToString(); DelegateUPN=$null
+            PermissionType='SendAs'; Scope='Mailbox'; Folder=$null
+            AccessRights='SendAs'; SharingPermissionFlags=$null; Inherited=$false; Deny=$false
+        } | ForEach-Object { [void]$list.Add($_) }
+    }
+    # Send on Behalf
+    $sob = @()
+    try { $sob = (Get-Mailbox -Identity $MailboxIdentity -ErrorAction Stop).GrantSendOnBehalfTo } catch {}
+    foreach ($d in ($sob | ForEach-Object { $_ -as [string] } | Where-Object { $_ })) {
+        [pscustomobject]@{
+            Mailbox=$MailboxIdentity; Delegate=$d; DelegateUPN=$null
+            PermissionType='SendOnBehalf'; Scope='Mailbox'; Folder=$null
+            AccessRights='SendOnBehalf'; SharingPermissionFlags=$null; Inherited=$false; Deny=$false
+        } | ForEach-Object { [void]$list.Add($_) }
+    }
+    # Folder permissions (Calendar/Inbox/Tasks)  --- NULL-SAFE VERSION ---
+    $folders = @('Calendar','Inbox','Tasks')
+    foreach ($f in $folders) {
+        $fid = "$MailboxIdentity`:\$f"
+        $fps = @(); try { $fps = Get-MailboxFolderPermission -Identity $fid -ErrorAction Stop } catch {}
+        $fps |
+          Where-Object { $_.User -and $_.User.ToString() -notmatch '^(Default|Anonymous)$' } |
+          ForEach-Object {
+              $userStr = $_.User.ToString()
+              # Robust AccessRights join (handles $null / scalar / array)
+              $rights = (@($_.AccessRights) | Where-Object { $_ } | ForEach-Object { $_.ToString() }) -join ','
+              # Robust SharingPermissionFlags join (property may not exist or may be $null)
+              $flags = $null
+              if ($_ | Get-Member -Name SharingPermissionFlags -MemberType NoteProperty,Property -ErrorAction SilentlyContinue) {
+                  $spf = $_.SharingPermissionFlags
+                  if ($spf) {
+                      if ($spf -is [Array]) { $flags = ($spf | ForEach-Object { $_.ToString() }) -join ',' }
+                      else { $flags = $spf.ToString() }
+                  }
+              }
+              [pscustomobject]@{
+                  Mailbox=$MailboxIdentity; Delegate=$userStr; DelegateUPN=$null
+                  PermissionType='FolderPermission'; Scope='Folder'; Folder=$f
+                  AccessRights=$rights; SharingPermissionFlags=$flags; Inherited=$false; Deny=$false
+              } | ForEach-Object { [void]$list.Add($_) }
+          }
+    }
+    # Resolve UPNs
+    # 1) If the Delegate already looks like an email, use it
+    $list | Where-Object { $_.Delegate -and -not $_.DelegateUPN -and ($_.Delegate -match '@') } |
+      ForEach-Object { $_.DelegateUPN = $_.Delegate }
+    # 2) Resolve anything else once per unique name
+    $names = $list | Where-Object { $_.Delegate -and -not $_.DelegateUPN } | Select-Object -Expand Delegate | Sort-Object -Unique
+    foreach ($n in $names) {
+        $recip = $null
+        try { $recip = Get-EXORecipient -Identity $n -ErrorAction Stop } catch { try { $recip = Get-Recipient -Identity $n -ErrorAction Stop } catch {} }
+        if ($recip) {
+            $smtp = $null
+            if ($recip.PrimarySmtpAddress)      { $smtp = $recip.PrimarySmtpAddress.ToString() }
+            elseif ($recip.WindowsEmailAddress) { $smtp = $recip.WindowsEmailAddress.ToString() }
+            elseif ($recip.ExternalEmailAddress){ $smtp = $recip.ExternalEmailAddress.ToString() }
+            if ($smtp) {
+                $list | Where-Object { $_.Delegate -eq $n -and -not $_.DelegateUPN } |
+                  ForEach-Object { $_.DelegateUPN = $smtp }
+            }
+        }
+    }
+    # Ensure something exportable
+    if (-not $list -or $list.Count -eq 0) {
+        $list.Add([pscustomobject]@{
+            Mailbox=$MailboxIdentity; Delegate='(none)'; DelegateUPN=$null
+            PermissionType=$null; Scope=$null; Folder=$null
+            AccessRights=$null; SharingPermissionFlags=$null; Inherited=$false; Deny=$false
+        }) | Out-Null
+    }
+    return ($list | Sort-Object PermissionType, Folder, Delegate)
+}
+# ---------- Main ----------
+# Connect-ExchangeOnline   # uncomment if not already connected
+$rows = Import-Csv -Path $CsvPath | Where-Object { $_.UPN }
+if (-not $rows) { throw "No rows found in $CsvPath with header 'UPN'." }
+$i = 1
+foreach ($row in $rows) {
+    $mbx = $row.UPN.Trim()
+    if (-not $mbx) { continue }
+    Write-Host "Processing [$i/$($rows.Count)]: $mbx ..."
+    # Per-mailbox try/catch so one failure doesn't stop the rest
+    try {
+        $data = Get-MailboxDelegatesReport -MailboxIdentity $mbx
+    } catch {
+        Write-Warning "[$i/$($rows.Count)] $mbx failed: $($_.Exception.Message)"
+        $i++; continue
+    }
+    $indexPrefix = ('{0:D2} - ' -f $i)
+    $sheetName   = New-SafeName -Text $mbx -Prefix $indexPrefix -MaxLen 31
+    $tableName   = New-SafeName -Text ("t_" + $mbx + "_$i") -MaxLen 31
+    if ($UseExcel) {
+        # One worksheet per mailbox in the same workbook
+        $params = @{
+            Path          = $XlsxPath
+            WorksheetName = $sheetName
+            TableName     = $tableName
+            AutoSize      = $true
+            FreezeTopRow  = $true
+            BoldTopRow    = $true
+            ClearSheet    = $true  # if re-running
+        }
+        $data | Export-Excel @params
+    } else {
+        # Fallback: one CSV per mailbox
+        $safeFile = ($mbx -replace '[^a-zA-Z0-9]','_')
+        $outFile  = Join-Path $CsvOutDirFallback "MailboxDelegates_$safeFile.csv"
+        $data | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $outFile
+    }
+    $i++
+}
+if ($UseExcel) {
+    Write-Host "Done. Excel workbook: $XlsxPath"
+} else {
+    Write-Host "Done. CSVs at: $CsvOutDirFallback"
+}
