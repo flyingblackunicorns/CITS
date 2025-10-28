@@ -1,0 +1,8 @@
+>>
+
+>> Removed shared drives
+net use Z: /delete
+
+or 
+
+Remove-PSDrive -Name Z -Force
