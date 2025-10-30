@@ -1,0 +1,10 @@
+>>>> Splash screen of cmdlets 
+
+
+
+New-DynamicDistributionGroup -Name "AllRumsey" `
+    -RecipientFilter {((RecipientType -eq 'UserMailbox') -and (PrimarySmtpAddress -like '*@Rumseyinc.com'))}
+
+
+New-DynamicDistributionGroup -Name "AllRumsey" `
+    -RecipientFilter {((RecipientType -eq 'UserMailbox') -and (PrimarySmtpAddress -match '@rumseyinc\.com$'))}
