@@ -6,3 +6,10 @@ Add-MailboxFolderPermission -Identity "allison.romeis@keystoneone.com:\Calendar"
 
 
 Add-MailboxFolderPermission -Identity "leo.volosin@keystoneone.com:\Calendar" -User "erica.cruz@keystoneone.com" -AccessRights Reviewer
+
+
+
+
+Add-MailboxFolderPermission -Identity "holidaycalendar@foxalliance.com:\Calendar" -User "samantha@foxalliance.com" -AccessRights Editor
+
+Add-MailboxFolderPermission -Identity "holidaycalendar@foxalliance.com:\Calendar" -User "shawn@foxalliance.com" -AccessRights Editor
