@@ -1,0 +1,10 @@
+>>> Permisson to readonly calendar
+
+
+$users = Import-Csv -Path "C:\Users\XavierRobertson\Downloads\CalendarUsers\Reviewers.csv"
+
+foreach ($user in $users) {
+    Add-MailboxFolderPermission `
+        -Identity "holidaycalendar@foxalliance.com:\Calendar" `
+        -User $user.UserPrincipalName `
+        -AccessRights Reviewer
