@@ -1,0 +1,11 @@
+>>> Adding permissions for Staff view only calendar. 
+
+
+$users = Import-Csv -Path "C:\Users\XavierRobertson\Downloads\CalendarUsers\Reviewers.csv"
+
+foreach ($user in $users) {
+    Add-MailboxFolderPermission `
+        -Identity "Holidaycalendar@foxalliance.com:\Calendar" `
+        -User $user.UserPrincipalName `
+        -AccessRights Reviewer
+}
