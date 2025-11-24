@@ -9,3 +9,110 @@ foreach ($user in $users) {
         -User $user.UserPrincipalName `
         -AccessRights Reviewer
 }
+
+
+
+
+
+>>>>>>Send invite with permissions 
+
+
+$users = Import-Csv -Path "C:\Users\WilliamGreen\Downloads\Export\fox1.csv"
+
+foreach ($user in $users) {
+    Add-MailboxFolderPermission `
+        -Identity "Holidaycalendar@foxalliance.com:\Calendar" `
+        -User $user.UserPrincipalName `
+        -AccessRights Reviewer
+
+    # Send invite/notification
+    $subject = "Welcome to our Holiday Calendar"
+    $body = @"
+Hello $($user.UserPrincipalName),
+
+You have been granted access to the Holiday calendar.
+
+To view the calendar, add it to your Outlook or OWA.
+For Windows user: 
+1. Open Outlook
+2. Go to the Calendar view
+3. In the left pane, right-click “Shared Calendars” or “My Calendars”
+4. Select “Add Calendar” > “Open Shared Calendar”
+5. Type the name or email address of the shared mailbox (holidaycalendar@foxalliance.com )
+6. Click OK
+
+For Mac users: 
+1. Open Outlook
+2. Go to the Calendar view
+3. In the top menu, click File > Open > Shared Calendar
+4. Enter the shared mailbox name or email address (holidaycalendar@foxalliance.com)
+Click Open
+
+
+Best regards,
+
+Fox Alliance
+
+"@
+
+    Send-MailMessage -To $user.UserPrincipalName `
+                     -From "Holidaycalendar@foxalliance.com" `
+                     -Subject $subject `
+                     -Body $body `
+                     -SmtpServer "smtp.foxalliance.com"
+
+
+
+
+>>> Power shell copiolet corrections
+
+
+# Import users from CSV
+$users = Import-Csv -Path "C:\Users\WilliamGreen\Downloads\Export\fox1.csv"
+
+# Define subject and SMTP details
+$subject = "Welcome to our Holiday Calendar"
+$smtpServer = "smtp.foxalliance.com"
+$fromAddress = "Holidaycalendar@foxalliance.com"
+
+foreach ($user in $users) {
+    # Grant Reviewer access to the shared calendar
+    Add-MailboxFolderPermission `
+        -Identity "Holidaycalendar@foxalliance.com:\Calendar" `
+        -User $user.UserPrincipalName `
+        -AccessRights Reviewer
+
+    # Build the email body
+    $body = @"
+Hello $($user.UserPrincipalName),
+
+You have been granted access to the Holiday calendar.
+
+To view the calendar, add it to your Outlook or OWA.
+
+For Windows users:
+1. Open Outlook
+2. Go to the Calendar view
+3. In the left pane, right-click “Shared Calendars” or “My Calendars”
+4. Select “Add Calendar” > “Open Shared Calendar”
+5. Type the name or email address of the shared mailbox (holidaycalendar@foxalliance.com)
+6. Click OK
+
+For Mac users:
+1. Open Outlook
+2. Go to the Calendar view
+3. In the top menu, click File > Open > Shared Calendar
+4. Enter the shared mailbox name or email address (holidaycalendar@foxalliance.com)
+5. Click Open
+
+Best regards,
+Fox Alliance
+"@
+
+    # Send notification email
+    Send-MailMessage -To $user.UserPrincipalName `
+                     -From $fromAddress `
+                     -Subject $subject `
+                     -Body $body `
+                     -SmtpServer $smtpServer
+}
